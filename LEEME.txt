@@ -1,0 +1,6 @@
+STILIZA completo arreglado
+
+1. Descomprimir
+2. Revisar js/supabase-config.js (URL + anon key)
+3. En Supabase SQL Editor correr VACIAR_MENSAJES_Y_RESERVAS.sql para vaciar mensajes y reservas
+4. Dueño: dueno@stiliza.com  /  STILIZA555$
