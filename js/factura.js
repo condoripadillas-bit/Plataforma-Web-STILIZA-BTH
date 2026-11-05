@@ -324,30 +324,30 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
 
   let reservaGuardada = null;
   let guardadoEnNube = false;
+  let errorNube = '';
 
   try {
-    if (window.StilizaReservations && typeof window.StilizaReservations.createReservation === 'function') {
-      reservaGuardada = await window.StilizaReservations.createReservation({
-        customer_name: nombre,
-        customer_phone: telefono || '',
-        customer_email: '',
-        items: items.map(i => ({
-          product_id: i.product_id,
-          product_name: i.product_name || i.nombre,
-          size: i.size || i.talla || 'M',
-          unit_price: i.unit_price || i.precio,
-          quantity: i.quantity || i.cantidad || 1
-        })),
-        payment_method: payment_method || 'tarjeta',
-        tipo: 'reserva'
-      });
-      guardadoEnNube = true;
+    if (!window.StilizaReservations || typeof window.StilizaReservations.createReservation !== 'function') {
+      throw new Error('StilizaReservations no cargado');
     }
+    reservaGuardada = await window.StilizaReservations.createReservation({
+      customer_name: nombre,
+      customer_phone: telefono || '',
+      customer_email: '',
+      items: items.map(i => ({
+        product_id: i.product_id,
+        product_name: i.product_name || i.nombre,
+        size: i.size || i.talla || 'M',
+        unit_price: i.unit_price || i.precio,
+        quantity: i.quantity || i.cantidad || 1
+      })),
+      payment_method: payment_method || 'tarjeta',
+      tipo: 'reserva'
+    });
+    guardadoEnNube = true;
   } catch (err) {
-    console.error('[Stiliza] Error al guardar reserva en Supabase:', err);
-    if (typeof mostrarToast === 'function') {
-      mostrarToast('No se pudo guardar en la nube. Revisá la conexión.', 'error');
-    }
+    console.error('[Stiliza] Error Supabase:', err);
+    errorNube = (err && (err.message || err.details || err.hint)) || String(err);
   }
 
   const numeroFinal = (reservaGuardada && (reservaGuardada.reservation_number || reservaGuardada.numero)) || numero;
@@ -416,128 +416,11 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
   });
 
   if (typeof mostrarToast === 'function') {
-    mostrarToast(
-      guardadoEnNube
-        ? '¡Reserva registrada! Ya la puede ver el negocio.'
-        : 'Reserva guardada solo en este dispositivo. Si no aparece en el panel, revisá Supabase.',
-      guardadoEnNube ? undefined : 'warn'
-    );
+    if (guardadoEnNube) {
+      mostrarToast('¡Reserva registrada! Ya la puede ver el negocio.');
+    } else {
+      mostrarToast('No se guardó en la nube: ' + (errorNube || 'error desconocido').substring(0, 90), 'error');
+    }
   }
   return true;
 }
-
-function setBtnLoading(btn, loading) {
-  if (!btn) return;
-  if (loading) {
-    btn.dataset.prev = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span>Procesando…</span>';
-  } else {
-    btn.disabled = false;
-    if (btn.dataset.prev) btn.innerHTML = btn.dataset.prev;
-  }
-}
-
-function wirePagoForms() {
-  document.querySelectorAll('.metodo-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.metodo-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const m = btn.dataset.metodo;
-      document.getElementById('formPagoTarjeta')?.classList.toggle('active', m === 'tarjeta');
-      document.getElementById('formPagoQR')?.classList.toggle('active', m === 'qr');
-    });
-  });
-
-  const tarjeta = document.getElementById('tarjeta');
-  if (tarjeta && !tarjeta.dataset.wired) {
-    tarjeta.dataset.wired = '1';
-    tarjeta.addEventListener('input', () => {
-      let v = tarjeta.value.replace(/\D/g, '').slice(0, 16);
-      tarjeta.value = v.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
-    });
-  }
-  const cad = document.getElementById('caducidad');
-  if (cad && !cad.dataset.wired) {
-    cad.dataset.wired = '1';
-    cad.addEventListener('input', () => {
-      let v = cad.value.replace(/\D/g, '').slice(0, 4);
-      if (v.length >= 3) v = v.slice(0, 2) + '/' + v.slice(2);
-      cad.value = v;
-    });
-  }
-
-  const formT = document.getElementById('formPagoTarjeta');
-  if (formT && !formT.dataset.wired) {
-    formT.dataset.wired = '1';
-    formT.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const nombre = (document.getElementById('nombre')?.value || '').trim();
-      const tel = (document.getElementById('telefono')?.value || '').trim();
-      if (!nombre) {
-        if (typeof mostrarToast === 'function') mostrarToast('Ingresa tu nombre completo', 'error');
-        document.getElementById('nombre')?.focus();
-        return;
-      }
-      const num = (document.getElementById('tarjeta')?.value || '').replace(/\s/g, '');
-      if (num && num.length < 13) {
-        if (typeof mostrarToast === 'function') mostrarToast('Número de tarjeta incompleto', 'warn');
-        return;
-      }
-      const btn = formT.querySelector('.btn-pagar, button[type="submit"]');
-      setBtnLoading(btn, true);
-      try {
-        await new Promise(r => setTimeout(r, 600));
-        await generarFacturaCompleta(nombre, tel, 'tarjeta');
-      } finally {
-        setBtnLoading(btn, false);
-      }
-    });
-  }
-
-  const formQ = document.getElementById('formPagoQR');
-  if (formQ && !formQ.dataset.wired) {
-    formQ.dataset.wired = '1';
-    formQ.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const nombre = (document.getElementById('nombre-qr')?.value || '').trim();
-      const tel = (document.getElementById('telefono-qr')?.value || '').trim();
-      if (!nombre) {
-        if (typeof mostrarToast === 'function') mostrarToast('Ingresa tu nombre completo', 'error');
-        document.getElementById('nombre-qr')?.focus();
-        return;
-      }
-      const btn = formQ.querySelector('.btn-pagar, button[type="submit"]');
-      setBtnLoading(btn, true);
-      try {
-        await new Promise(r => setTimeout(r, 500));
-        await generarFacturaCompleta(nombre, tel, 'qr');
-      } finally {
-        setBtnLoading(btn, false);
-      }
-    });
-  }
-
-  document.getElementById('btnImprimirFactura')?.addEventListener('click', imprimirFactura);
-  document.getElementById('btnDescargarImagen')?.addEventListener('click', descargarFacturaImagen);
-  document.getElementById('btnDescargarFacturaImg')?.addEventListener('click', descargarFacturaImagen);
-  document.getElementById('cerrarModalFactura')?.addEventListener('click', () => {
-    document.getElementById('modalFactura')?.classList.remove('active');
-    document.body.style.overflow = '';
-  });
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', wirePagoForms);
-} else {
-  wirePagoForms();
-}
-
-window.mostrarFactura = mostrarFactura;
-window.generarFacturaCompleta = generarFacturaCompleta;
-window.imprimirFactura = imprimirFactura;
-window.descargarFacturaImagen = descargarFacturaImagen;
-window.generarFacturaHTML = generarFacturaHTML;
-window.getCarritoItems = getCarritoItems;
