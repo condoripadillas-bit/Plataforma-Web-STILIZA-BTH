@@ -1,4 +1,3 @@
-// Panel Dueño — local + Supabase (reservas sincronizadas entre dispositivos)
 let productos = [];
 let reservas = [];
 let empleados = [];
