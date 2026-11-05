@@ -1,4 +1,4 @@
-// Panel Dueño — local-first (rápido) + Supabase opcional en segundo plano
+// Panel Dueño — local + Supabase (reservas sincronizadas entre dispositivos)
 let productos = [];
 let reservas = [];
 let empleados = [];
@@ -65,12 +65,80 @@ function leerProductos() {
 function guardarProductos(lista) {
   return safeSet('stiliza_productos_admin', lista);
 }
-function leerReservas() {
+
+function leerReservasLocal() {
   try {
     const arr = JSON.parse(localStorage.getItem('stiliza_reservas') || '[]');
     return Array.isArray(arr) ? arr : [];
-  } catch (_) { return []; }
+  } catch (_) {
+    return [];
+  }
 }
+
+function mergeReservas(remoto, local) {
+  const map = new Map();
+  const add = (r) => {
+    if (!r) return;
+    const key = String(r.id || r.reservation_number || r.numero || Math.random());
+    if (!map.has(key)) map.set(key, r);
+  };
+  (remoto || []).forEach(add);
+  (local || []).forEach(add);
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.created_at || b.fecha || 0) - new Date(a.created_at || a.fecha || 0)
+  );
+}
+
+function normalizarReserva(r) {
+  const items = r.reservation_items || r.items || [];
+  return {
+    ...r,
+    id: r.id,
+    numero: r.reservation_number || r.numero || '—',
+    reservation_number: r.reservation_number || r.numero || '—',
+    cliente: r.customer_name || r.cliente || 'Cliente',
+    customer_name: r.customer_name || r.cliente || 'Cliente',
+    telefono: r.customer_phone || r.telefono || '',
+    customer_phone: r.customer_phone || r.telefono || '',
+    total: Number(r.total_amount ?? r.total ?? 0),
+    total_amount: Number(r.total_amount ?? r.total ?? 0),
+    anticipo: Number(r.deposit_amount ?? r.anticipo ?? 0),
+    deposit_amount: Number(r.deposit_amount ?? r.anticipo ?? 0),
+    saldo: Number(r.remaining_amount ?? r.saldo ?? 0),
+    remaining_amount: Number(r.remaining_amount ?? r.saldo ?? 0),
+    estado: r.pickup_status || r.estado || 'pendiente',
+    pickup_status: r.pickup_status || r.estado || 'pendiente',
+    tipo: r.tipo || 'reserva',
+    items,
+    reservation_items: items,
+    employee_email: r.employee_email || r.empleado || '',
+    created_at: r.created_at || r.fecha || null,
+    fecha: r.fecha || r.created_at || null
+  };
+}
+
+function leerReservas() {
+  return (window.__stilizaReservasCache || leerReservasLocal()).map(normalizarReserva);
+}
+
+async function cargarReservasDesdeNube() {
+  let remoto = [];
+  try {
+    if (window.StilizaReservations && typeof window.StilizaReservations.list === 'function') {
+      remoto = await window.StilizaReservations.list();
+    }
+  } catch (err) {
+    console.error('[Stiliza] No se pudieron cargar reservas de Supabase:', err);
+  }
+  const local = leerReservasLocal();
+  const merged = mergeReservas(remoto, local).map(normalizarReserva);
+  window.__stilizaReservasCache = merged;
+  try {
+    localStorage.setItem('stiliza_reservas', JSON.stringify(merged));
+  } catch (_) {}
+  return merged;
+}
+
 function leerEmpleadosAuth() {
   try {
     return JSON.parse(localStorage.getItem('stiliza_empleados_auth') || '[]')
@@ -139,10 +207,17 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       const pt = document.getElementById('panelTitle');
       if (pt) pt.textContent = titles[s] || s;
-      // render inmediato (local)
+
       if (s === 'dashboard') renderDashboard();
       if (s === 'productos') renderProductos();
-      if (s === 'reservas') renderReservas();
+      if (s === 'reservas') {
+        renderReservas();
+        cargarReservasDesdeNube().then(() => {
+          const filtro = document.querySelector('#section-reservas .filtro-admin.active')?.dataset.filtro || 'todas';
+          const q = document.getElementById('buscarReservaCodigo')?.value || '';
+          renderReservas(filtro, q);
+        });
+      }
       if (s === 'empleados') renderEmpleados();
       if (s === 'estadisticas') renderEstadisticas();
       if (s === 'mensajes') renderMensajes();
@@ -157,40 +232,19 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDestacados();
   setupPromos();
 
-  // Carga inmediata del dashboard al entrar
   renderDashboard();
   renderProductos();
   renderEmpleados();
 
-  // Sincronizar productos desde Supabase (si hay)
-  (async () => {
-    try {
-      if (!window.StilizaProducts?.listAll) return;
-      const remote = await window.StilizaProducts.listAll();
-      if (remote && remote.length) {
-        const mapped = remote.map(p => ({
-          id: p.id,
-          name: p.name, nombre: p.name,
-          description: p.description, descripcion: p.description,
-          material: p.material,
-          category: p.category, categoria: p.category,
-          price: p.price, precio: p.price,
-          image_url: p.image_url || '', imagen: p.image_url || '',
-          sizes: p.sizes || ['S','M','L'], tallas: p.sizes || ['S','M','L'],
-          is_active: p.is_active !== false, activo: p.is_active !== false
-        }));
-        const local = leerProductos();
-        const byId = new Map(local.map(x => [String(x.id), x]));
-        mapped.forEach(m => byId.set(String(m.id), { ...(byId.get(String(m.id)) || {}), ...m }));
-        // también productos solo locales
-        local.forEach(l => { if (!byId.has(String(l.id))) byId.set(String(l.id), l); });
-        const merged = [...byId.values()];
-        guardarProductos(merged);
-        renderProductos();
-        renderDashboard();
-      }
-    } catch (e) { console.warn('[sync products]', e); }
-  })();
+  // Sincronizar reservas desde Supabase al entrar
+  cargarReservasDesdeNube().then(() => {
+    renderDashboard();
+    if (document.getElementById('section-reservas')?.classList.contains('active')) {
+      const filtro = document.querySelector('#section-reservas .filtro-admin.active')?.dataset.filtro || 'todas';
+      const q = document.getElementById('buscarReservaCodigo')?.value || '';
+      renderReservas(filtro, q);
+    }
+  });
 });
 
 function renderDashboard() {
@@ -350,7 +404,6 @@ function setupProductos() {
     if (editId) {
       const i = local.findIndex(x => String(x.id) === String(editId));
       if (i >= 0) {
-        // conservar imagen si no se cambió
         if (!imageData && (local[i].imagen || local[i].image_url)) {
           row.imagen = local[i].imagen || local[i].image_url;
           row.image_url = row.imagen;
@@ -361,32 +414,6 @@ function setupProductos() {
       local.unshift(row);
     }
     if (!guardarProductos(local)) return;
-
-    // Guardar también en Supabase (solo columnas válidas)
-    try {
-      if (window.StilizaProducts) {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(editId || ''));
-        if (editId && isUuid) {
-          await window.StilizaProducts.update(editId, row);
-        } else {
-          const created = await window.StilizaProducts.create(row);
-          if (created?.id) {
-            const j = local.findIndex(x => String(x.id) === String(row.id));
-            if (j >= 0) {
-              local[j].id = created.id;
-              guardarProductos(local);
-            }
-          }
-        }
-        console.log('[Stiliza] Producto → Supabase OK');
-      } else {
-        console.warn('[Stiliza] StilizaProducts no cargado');
-      }
-    } catch (err) {
-      console.error('[Stiliza] Producto Supabase:', err);
-      mostrarToast?.('Local OK. Supabase: ' + (err.message || 'error'), 'warn');
-    }
-
     modal?.classList.remove('active');
     mostrarToast?.('Producto guardado');
     renderProductos();
@@ -452,7 +479,7 @@ window.editarProducto = (id) => {
   document.getElementById('modalProducto')?.classList.add('active');
 };
 
-window.toggleProducto = async (id) => {
+window.toggleProducto = (id) => {
   let local = leerProductos();
   const i = local.findIndex(x => String(x.id) === String(id));
   if (i < 0) return;
@@ -460,11 +487,6 @@ window.toggleProducto = async (id) => {
   local[i].is_active = next;
   local[i].activo = next;
   guardarProductos(local);
-  try {
-    if (/^[0-9a-f-]{36}$/i.test(String(id)) && window.StilizaProducts) {
-      await window.StilizaProducts.toggleActive(id, next);
-    }
-  } catch (e) { console.warn(e); }
   mostrarToast?.(next ? 'Producto visible' : 'Producto oculto');
   renderProductos();
   renderDashboard();
@@ -476,11 +498,6 @@ window.eliminarProducto = async (id) => {
     : confirm('¿Eliminar producto?');
   if (ok === false) return;
   guardarProductos(leerProductos().filter(x => String(x.id) !== String(id)));
-  try {
-    if (/^[0-9a-f-]{36}$/i.test(String(id)) && window.StilizaProducts) {
-      await window.StilizaProducts.remove(id);
-    }
-  } catch (e) { console.warn(e); }
   mostrarToast?.('Eliminado');
   renderProductos();
   renderDashboard();
@@ -505,7 +522,6 @@ function setupReservasFiltros() {
     if (e.key === 'Enter') { e.preventDefault(); buscar(); }
   });
   document.getElementById('buscarReservaCodigo')?.addEventListener('input', () => {
-    // búsqueda en vivo al escribir
     buscar();
   });
   document.getElementById('btnLimpiarBusquedaReserva')?.addEventListener('click', () => {
@@ -520,7 +536,6 @@ function montosReserva(r) {
   const st = r.pickup_status || r.estado || 'pendiente';
   const esVenta = r.tipo === 'venta_tienda' || st === 'vendido';
   const esRecogido = st === 'recogido';
-  // Si ya se recogió = pagó el saldo completo
   let anticipo, saldo;
   if (esVenta || esRecogido) {
     anticipo = total;
@@ -551,6 +566,7 @@ function renderReservas(filtro = 'todas', busqueda = '') {
   });
   if (changed) {
     try { localStorage.setItem('stiliza_reservas', JSON.stringify(lista)); } catch (_) {}
+    window.__stilizaReservasCache = lista;
   }
   if (filtro && filtro !== 'todas') {
     lista = lista.filter(r => (r.pickup_status || r.estado) === filtro);
@@ -611,7 +627,6 @@ window.marcarReserva = (id, estado) => {
   if (i >= 0) {
     lista[i].pickup_status = estado;
     lista[i].estado = estado;
-    // Recogido = el cliente pagó el saldo que faltaba → queda en 0 pendiente
     if (estado === 'recogido') {
       const total = Number(lista[i].total || lista[i].total_amount || 0);
       lista[i].saldo = 0;
@@ -621,9 +636,10 @@ window.marcarReserva = (id, estado) => {
       lista[i].payment_status = 'pagado';
       lista[i].pagado_completo = true;
     }
+    window.__stilizaReservasCache = lista;
     try { localStorage.setItem('stiliza_reservas', JSON.stringify(lista)); } catch (_) {}
     try {
-      if (lista[i].id && window.StilizaReservations?.updateStatus) {
+      if (lista[i].id && !String(lista[i].id).startsWith('local-') && window.StilizaReservations?.updateStatus) {
         window.StilizaReservations.updateStatus(lista[i].id, estado).catch(() => {});
       }
     } catch (_) {}
@@ -811,12 +827,10 @@ function renderMensajes() {
       <div class="msg-actions"><a class="btn btn-primario btn-sm" target="_blank" rel="noopener" href="https://wa.me/59174954029?text=${texto}">WhatsApp</a></div>
     </div>`;
   }).join('') : '<p class="empty-msg">Aún no hay mensajes de contacto</p>';
-  // intentar Supabase en segundo plano
   try {
     window.StilizaMessages?.list?.().then(remote => {
       if (remote?.length) {
-        const merged = [...remote, ...msgs];
-        // no reescribir si ya hay locales
+        // mensajes remotos disponibles
       }
     }).catch(() => {});
   } catch (_) {}
@@ -877,7 +891,7 @@ function setupPromos() {
     };
     r.readAsDataURL(f);
   });
-  document.getElementById('formPromo')?.addEventListener('submit', async (e) => {
+  document.getElementById('formPromo')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const list = loadPromos();
     const dias = parseInt(document.getElementById('promoDias')?.value, 10) || 20;
@@ -912,26 +926,6 @@ function setupPromos() {
     if (idx >= 0) list[idx] = { ...list[idx], ...payload };
     else list.unshift(payload);
     savePromos(list);
-
-    try {
-      if (window.StilizaPromotions) {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(window.__editPromoId || ''));
-        if (window.__editPromoId && isUuid) {
-          await window.StilizaPromotions.update(window.__editPromoId, payload);
-        } else {
-          const created = await window.StilizaPromotions.create(payload);
-          if (created?.id) {
-            const i = list.findIndex(x => x.id === payload.id);
-            if (i >= 0) { list[i].id = created.id; savePromos(list); }
-          }
-        }
-        console.log('[Stiliza] Promo → Supabase OK');
-      }
-    } catch (err) {
-      console.error('[Stiliza] Promo Supabase:', err);
-      mostrarToast?.('Local OK. Supabase: ' + (err.message || 'error'), 'warn');
-    }
-
     modal?.classList.remove('active');
     mostrarToast?.('Promoción guardada');
     renderPromos();
