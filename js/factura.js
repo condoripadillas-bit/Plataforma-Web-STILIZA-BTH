@@ -396,6 +396,7 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
 
   document.getElementById('modalPago')?.classList.remove('active');
   document.getElementById('modalCarrito')?.classList.remove('active');
+  document.body.style.overflow = '';
 
   mostrarFactura({
     numero: numeroFinal,
@@ -425,60 +426,213 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
   return true;
 }
 
+/* ============================================================
+   FORMULARIO DE PAGO + MEJORAS MÓVIL
+   ============================================================ */
 
-// ===== FIX: enviar formularios de pago → generar factura =====
-// Antes ningún código escuchaba el "submit" de formPagoTarjeta / formPagoQR,
-// por eso el navegador recargaba la página y el carrito volvía a aparecer.
-(function initPagoFactura() {
-  let procesando = false;
+function formatearTarjeta(valor) {
+  const digits = String(valor || '').replace(/\D/g, '').slice(0, 16);
+  return digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+}
 
-  async function procesarPago(e, metodo) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (procesando) return;
-    const form = e.currentTarget;
-    const btn = form.querySelector('button[type="submit"]');
-    const toast = (m, t) => { if (typeof mostrarToast === 'function') mostrarToast(m, t); };
+function formatearCaducidad(valor) {
+  let digits = String(valor || '').replace(/\D/g, '').slice(0, 4);
+  if (digits.length >= 3) {
+    return digits.slice(0, 2) + '/' + digits.slice(2);
+  }
+  return digits;
+}
 
-    const nombre = (form.querySelector(metodo === 'qr' ? '#nombre-qr' : '#nombre')?.value || '').trim();
-    const telefono = (form.querySelector(metodo === 'qr' ? '#telefono-qr' : '#telefono')?.value || '').trim();
-    if (!nombre) { toast('Escribe tu nombre completo', 'warn'); return; }
-
-    if (metodo === 'tarjeta') {
-      const num = (form.querySelector('#tarjeta')?.value || '').replace(/\D/g, '');
-      const cad = (form.querySelector('#caducidad')?.value || '').trim();
-      const cvv = (form.querySelector('#cvv')?.value || '').replace(/\D/g, '');
-      if (num.length < 13) { toast('Número de tarjeta incompleto', 'warn'); return; }
-      if (!/^\d{2}\s*\/\s*\d{2}$/.test(cad)) { toast('Caducidad inválida (MM/AA)', 'warn'); return; }
-      if (cvv.length < 3) { toast('CVV inválido', 'warn'); return; }
-    }
-
-    procesando = true;
-    const prev = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Generando factura…'; }
-    try {
-      await generarFacturaCompleta(nombre, telefono, metodo);
-      form.reset();
-    } catch (err) {
-      console.error('[Stiliza] Error generando factura', err);
-      toast('No se pudo generar la factura: ' + ((err && err.message) || 'error'), 'error');
-    } finally {
-      procesando = false;
-      if (btn) { btn.disabled = false; btn.innerHTML = prev; }
-    }
+function setupInputMasks() {
+  const tarjeta = document.getElementById('tarjeta');
+  if (tarjeta && !tarjeta.dataset.maskReady) {
+    tarjeta.dataset.maskReady = '1';
+    tarjeta.setAttribute('inputmode', 'numeric');
+    tarjeta.setAttribute('autocomplete', 'cc-number');
+    tarjeta.addEventListener('input', (e) => {
+      const pos = e.target.selectionStart;
+      const oldLen = e.target.value.length;
+      e.target.value = formatearTarjeta(e.target.value);
+      const newLen = e.target.value.length;
+      const newPos = Math.max(0, pos + (newLen - oldLen));
+      try { e.target.setSelectionRange(newPos, newPos); } catch (_) {}
+    });
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('formPagoTarjeta')?.addEventListener('submit', (e) => procesarPago(e, 'tarjeta'));
-    document.getElementById('formPagoQR')?.addEventListener('submit', (e) => procesarPago(e, 'qr'));
-    // Formatear número de tarjeta
-    document.getElementById('tarjeta')?.addEventListener('input', (e) => {
-      const v = e.target.value.replace(/\D/g, '').slice(0, 16);
-      e.target.value = v.replace(/(.{4})/g, '$1 ').trim();
+  const cad = document.getElementById('caducidad');
+  if (cad && !cad.dataset.maskReady) {
+    cad.dataset.maskReady = '1';
+    cad.setAttribute('inputmode', 'numeric');
+    cad.setAttribute('autocomplete', 'cc-exp');
+    cad.setAttribute('maxlength', '5');
+    cad.addEventListener('input', (e) => {
+      e.target.value = formatearCaducidad(e.target.value);
     });
-    // Venir desde otra página con el carrito lleno
-    if (new URLSearchParams(location.search).get('pagar') === '1') {
-      setTimeout(() => document.getElementById('procederPago')?.click(), 400);
+  }
+
+  const cvv = document.getElementById('cvv');
+  if (cvv) {
+    cvv.setAttribute('inputmode', 'numeric');
+    cvv.setAttribute('autocomplete', 'cc-csc');
+  }
+
+  const tel = document.getElementById('telefono');
+  if (tel) tel.setAttribute('inputmode', 'tel');
+  const telQ = document.getElementById('telefono-qr');
+  if (telQ) telQ.setAttribute('inputmode', 'tel');
+}
+
+function scrollFocusedInputIntoView(el) {
+  if (!el || !el.closest) return;
+  const modal = el.closest('.modal-pago, .modal-carrito, .modal-login, .modal-detalle');
+  if (!modal) return;
+  // Dar tiempo al teclado a aparecer
+  setTimeout(() => {
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    } catch (_) {
+      el.scrollIntoView(true);
+    }
+  }, 300);
+}
+
+function setupMobileKeyboardHandling() {
+  // Evitar zoom en iOS: inputs >= 16px (ya en CSS)
+  document.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) {
+      scrollFocusedInputIntoView(t);
+      document.body.classList.add('keyboard-open');
     }
   });
-})();
+  document.addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (!document.activeElement || !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        document.body.classList.remove('keyboard-open');
+      }
+    }, 100);
+  });
+
+  // Ajustar altura del modal con visualViewport (Android/iOS)
+  if (window.visualViewport) {
+    const adjust = () => {
+      const vh = window.visualViewport.height;
+      document.documentElement.style.setProperty('--vvh', vh + 'px');
+      // Si hay modal activo, asegurar scroll
+      const active = document.querySelector('.modal-overlay.active .modal-pago, .modal-overlay.active .modal-carrito');
+      if (active) {
+        active.style.maxHeight = Math.min(vh * 0.95, window.innerHeight * 0.95) + 'px';
+      }
+    };
+    window.visualViewport.addEventListener('resize', adjust);
+    window.visualViewport.addEventListener('scroll', adjust);
+    adjust();
+  }
+}
+
+async function handlePagoTarjeta(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('.btn-pagar, button[type="submit"]');
+  const nombre = (document.getElementById('nombre')?.value || '').trim();
+  const telefono = (document.getElementById('telefono')?.value || '').trim();
+  const tarjeta = (document.getElementById('tarjeta')?.value || '').replace(/\s/g, '');
+  const caducidad = (document.getElementById('caducidad')?.value || '').trim();
+  const cvv = (document.getElementById('cvv')?.value || '').trim();
+
+  if (!nombre) {
+    if (typeof mostrarToast === 'function') mostrarToast('Ingresa tu nombre completo', 'error');
+    document.getElementById('nombre')?.focus();
+    return;
+  }
+  if (tarjeta && tarjeta.length < 13) {
+    if (typeof mostrarToast === 'function') mostrarToast('Número de tarjeta inválido', 'error');
+    document.getElementById('tarjeta')?.focus();
+    return;
+  }
+  if (caducidad && !/^\d{2}\/\d{2}$/.test(caducidad)) {
+    if (typeof mostrarToast === 'function') mostrarToast('Fecha de caducidad inválida (MM/AA)', 'error');
+    document.getElementById('caducidad')?.focus();
+    return;
+  }
+
+  const prevText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>Procesando…</span>';
+  }
+
+  try {
+    const ok = await generarFacturaCompleta(nombre, telefono, 'tarjeta');
+    if (ok) {
+      // limpiar form
+      form.reset();
+    }
+  } catch (err) {
+    console.error(err);
+    if (typeof mostrarToast === 'function') mostrarToast('Error al procesar el pago', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = prevText || '<span>Pagar anticipo 20%</span><span class="btn-arrow">→</span>';
+    }
+  }
+}
+
+async function handlePagoQR(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('.btn-pagar, button[type="submit"]');
+  const nombre = (document.getElementById('nombre-qr')?.value || '').trim();
+  const telefono = (document.getElementById('telefono-qr')?.value || '').trim();
+
+  if (!nombre) {
+    if (typeof mostrarToast === 'function') mostrarToast('Ingresa tu nombre completo', 'error');
+    document.getElementById('nombre-qr')?.focus();
+    return;
+  }
+
+  const prevText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>Generando factura…</span>';
+  }
+
+  try {
+    const ok = await generarFacturaCompleta(nombre, telefono, 'qr');
+    if (ok) form.reset();
+  } catch (err) {
+    console.error(err);
+    if (typeof mostrarToast === 'function') mostrarToast('Error al generar la factura', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = prevText || '<span>Ya pagué – Generar factura</span><span class="btn-arrow">→</span>';
+    }
+  }
+}
+
+function initPagoForms() {
+  const formTarjeta = document.getElementById('formPagoTarjeta');
+  if (formTarjeta && !formTarjeta.dataset.ready) {
+    formTarjeta.dataset.ready = '1';
+    formTarjeta.addEventListener('submit', handlePagoTarjeta);
+  }
+  const formQR = document.getElementById('formPagoQR');
+  if (formQR && !formQR.dataset.ready) {
+    formQR.dataset.ready = '1';
+    formQR.addEventListener('submit', handlePagoQR);
+  }
+  setupInputMasks();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initPagoForms();
+  setupMobileKeyboardHandling();
+});
+
+// Por si el script se carga después del DOM
+if (document.readyState !== 'loading') {
+  initPagoForms();
+  setupMobileKeyboardHandling();
+}
