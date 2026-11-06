@@ -2,6 +2,12 @@ function getSupabaseClient() {
   try {
     if (window.StilizaDB && window.StilizaDB.sb) return window.StilizaDB.sb;
   } catch (_) {}
+  try {
+    if (typeof window.getSupabase === 'function') {
+      const c = window.getSupabase();
+      if (c) return c;
+    }
+  } catch (_) {}
   return null;
 }
 
@@ -9,26 +15,35 @@ window.StilizaReservations = {
   async list() {
     const sb = getSupabaseClient();
     if (!sb) return [];
-    const { data, error } = await sb
-      .from('reservations')
-      .select('*, reservation_items(*)')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error(error);
+    try {
+      const { data, error } = await sb
+        .from('reservations')
+        .select('*, reservation_items(*)')
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error(error);
+        return [];
+      }
+      return data || [];
+    } catch (err) {
+      console.error('[reservations.list]', err);
       return [];
     }
-    return data || [];
   },
 
-  async createReservation({ customer_name, customer_phone, items, payment_method, tipo }) {
+  async createReservation({ customer_name, customer_phone, customer_email, items, payment_method, tipo }) {
     const sb = getSupabaseClient();
-    if (!sb) throw new Error('Supabase no configurado');
+    if (!sb) throw new Error('Supabase no configurado. Revisa js/supabase-config.js (URL y anon key).');
 
     const list = (items || []).map(i => ({
       product_name: i.product_name || i.nombre || 'Producto',
       size: i.size || i.talla || 'M',
       unit_price: Number(i.unit_price ?? i.precio ?? 0),
-      quantity: Number(i.quantity ?? i.cantidad ?? 1)
+      quantity: Number(i.quantity ?? i.cantidad ?? 1),
+      // Solo enviar product_id si es UUID válido
+      product_id: (i.product_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(i.product_id)))
+        ? i.product_id
+        : null
     }));
 
     const total = list.reduce((s, i) => s + i.unit_price * i.quantity, 0);
@@ -37,32 +52,60 @@ window.StilizaReservations = {
     const remaining = Math.round((total - deposit) * 100) / 100;
     const numero = (isVenta ? 'V' : 'R') + '-2026-' + String(Math.floor(Math.random() * 90000) + 10000);
 
-    const { data: res, error } = await sb.from('reservations').insert({
+    const payload = {
       reservation_number: numero,
       customer_name: customer_name || 'Cliente',
       customer_phone: customer_phone || '',
+      customer_email: customer_email || '',
       total_amount: total,
       deposit_amount: deposit,
       remaining_amount: remaining,
       payment_method: payment_method || 'tarjeta',
-      pickup_status: isVenta ? 'vendido' : 'pendiente'
-    }).select().single();
+      payment_status: 'pagado',
+      pickup_status: isVenta ? 'vendido' : 'pendiente',
+      tipo: isVenta ? 'venta_tienda' : 'reserva',
+      pickup_deadline: isVenta ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    };
 
-    if (error) throw error;
-
-    if (res && res.id && list.length) {
-      const rows = list.map(i => ({
-        reservation_id: res.id,
-        product_name: i.product_name,
-        size: i.size,
-        unit_price: i.unit_price,
-        quantity: i.quantity
-      }));
-      const { error: e2 } = await sb.from('reservation_items').insert(rows);
-      if (e2) console.warn('items:', e2);
+    // Intento 1: insert + select (necesita política SELECT adecuada)
+    let res = null;
+    let error = null;
+    try {
+      const r1 = await sb.from('reservations').insert(payload).select().single();
+      res = r1.data;
+      error = r1.error;
+    } catch (netErr) {
+      // Failed to fetch / red / DNS
+      const msg = (netErr && netErr.message) || String(netErr);
+      throw new Error('No se pudo conectar con Supabase (' + msg + '). Verifica que el proyecto esté activo y la URL en supabase-config.js sea correcta.');
     }
 
-    return res;
+    // Intento 2: si falló por RLS al hacer RETURNING, insertar sin select
+    if (error) {
+      console.warn('[reservations] insert+select falló:', error);
+      const r2 = await sb.from('reservations').insert(payload);
+      if (r2.error) throw r2.error;
+      res = { id: null, reservation_number: numero, ...payload };
+    }
+
+    if (res && res.id && list.length) {
+      const rows = list.map(i => {
+        const row = {
+          reservation_id: res.id,
+          product_name: i.product_name,
+          size: i.size,
+          unit_price: i.unit_price,
+          quantity: i.quantity,
+          subtotal: Math.round(i.unit_price * i.quantity * 100) / 100
+        };
+        if (i.product_id) row.product_id = i.product_id;
+        return row;
+      });
+      const { error: e2 } = await sb.from('reservation_items').insert(rows);
+      if (e2) console.warn('[reservations] items:', e2);
+    }
+
+    return res || { reservation_number: numero, ...payload };
   },
 
   async updateStatus(id, pickup_status) {
@@ -70,7 +113,7 @@ window.StilizaReservations = {
     if (!sb) throw new Error('Supabase no configurado');
     const { data, error } = await sb
       .from('reservations')
-      .update({ pickup_status })
+      .update({ pickup_status, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
