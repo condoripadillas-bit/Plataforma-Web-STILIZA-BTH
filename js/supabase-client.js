@@ -9,7 +9,7 @@
       console.error('[Stiliza] Carga el CDN @supabase/supabase-js antes de este archivo');
       return null;
     }
-    if (!cfg.url || cfg.url.includes('TU-PROYECTO') || !cfg.anonKey || cfg.anonKey.includes('TU-ANON')) {
+    if (!cfg.url || cfg.url.includes('TU-PROYECTO') || !cfg.anonKey || cfg.anonKey.includes('sb_publishable_nzBrwHEF9lbOztTkUrtCYA_Fq_Dq4hx')) {
       console.warn('[Stiliza] Configura js/supabase-config.js con tu URL y anon key');
       return null;
     }
