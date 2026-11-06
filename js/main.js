@@ -283,7 +283,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('formPagoQR')?.classList.remove('active');
     const modal = document.getElementById('modalPago');
     if (!modal) {
-      if (typeof mostrarToast === 'function') mostrarToast('No se encontró el formulario de pago', 'error');
+      // Esta página no tiene el formulario de pago: ir al catálogo (el carrito se conserva)
+      window.location.href = (location.pathname.includes('/dueno') || location.pathname.includes('/empleado') ? '../' : '') + 'catalogo.html?pagar=1';
       return;
     }
     modal.classList.add('active');
