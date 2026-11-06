@@ -1,5 +1,5 @@
 const SUPABASE_URL = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.url) || 'https://ldezoxhgecvfxpudsqlb.supabase.co';
-const SUPABASE_ANON_KEY = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.anonKey) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyenptand3ZnhmamxpY2pncnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDQ4NzksImV4cCI6MjEwMzUyMDg3OX0.izzfnJhUG1ERLIzxVcU27UNvg3poIIrdX_go35sxoKI';
+const SUPABASE_ANON_KEY = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.anonKey) || 'sb_publishable_nzBrwHEF9lbOztTkUrtCYA_Fq_Dq4hx';
 
 let supabaseClient = null;
 
