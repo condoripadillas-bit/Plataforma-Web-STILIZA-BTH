@@ -420,7 +420,9 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
     if (guardadoEnNube) {
       mostrarToast('¡Reserva registrada! Ya la puede ver el negocio.');
     } else {
-      mostrarToast('No se guardó en la nube: ' + (errorNube || 'error desconocido').substring(0, 90), 'error');
+      // La factura local SÍ se generó; no mostrar error técnico al cliente
+      console.warn('[Stiliza] Reserva local OK. Nube:', errorNube);
+      mostrarToast('¡Reserva lista! Muestra este comprobante al recoger.');
     }
   }
   return true;
