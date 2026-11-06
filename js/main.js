@@ -285,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('formPagoQR')?.classList.remove('active');
     const modal = document.getElementById('modalPago');
     if (!modal) {
-      if (typeof mostrarToast === 'function') mostrarToast('No se encontró el formulario de pago', 'error');
+      window.location.href = (location.pathname.includes('/dueno') || location.pathname.includes('/empleado') ? '../' : '') + 'catalogo.html?pagar=1';
       return;
     }
     modal.classList.add('active');
@@ -329,4 +329,11 @@ window.guardarCarrito = guardarCarrito;
 Object.defineProperty(window, 'carrito', {
   get() { return carrito; },
   set(v) { carrito = Array.isArray(v) ? v : []; guardarCarrito(); }
+});
+
+// Si llegaste desde otra página con el carrito lleno, abrir el pago automáticamente
+document.addEventListener('DOMContentLoaded', () => {
+  if (new URLSearchParams(location.search).get('pagar') === '1') {
+    setTimeout(() => document.getElementById('procederPago')?.click(), 400);
+  }
 });
