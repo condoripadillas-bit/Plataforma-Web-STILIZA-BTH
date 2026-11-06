@@ -424,3 +424,61 @@ async function generarFacturaCompleta(nombre, telefono, payment_method) {
   }
   return true;
 }
+
+
+// ===== FIX: enviar formularios de pago → generar factura =====
+// Antes ningún código escuchaba el "submit" de formPagoTarjeta / formPagoQR,
+// por eso el navegador recargaba la página y el carrito volvía a aparecer.
+(function initPagoFactura() {
+  let procesando = false;
+
+  async function procesarPago(e, metodo) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (procesando) return;
+    const form = e.currentTarget;
+    const btn = form.querySelector('button[type="submit"]');
+    const toast = (m, t) => { if (typeof mostrarToast === 'function') mostrarToast(m, t); };
+
+    const nombre = (form.querySelector(metodo === 'qr' ? '#nombre-qr' : '#nombre')?.value || '').trim();
+    const telefono = (form.querySelector(metodo === 'qr' ? '#telefono-qr' : '#telefono')?.value || '').trim();
+    if (!nombre) { toast('Escribe tu nombre completo', 'warn'); return; }
+
+    if (metodo === 'tarjeta') {
+      const num = (form.querySelector('#tarjeta')?.value || '').replace(/\D/g, '');
+      const cad = (form.querySelector('#caducidad')?.value || '').trim();
+      const cvv = (form.querySelector('#cvv')?.value || '').replace(/\D/g, '');
+      if (num.length < 13) { toast('Número de tarjeta incompleto', 'warn'); return; }
+      if (!/^\d{2}\s*\/\s*\d{2}$/.test(cad)) { toast('Caducidad inválida (MM/AA)', 'warn'); return; }
+      if (cvv.length < 3) { toast('CVV inválido', 'warn'); return; }
+    }
+
+    procesando = true;
+    const prev = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Generando factura…'; }
+    try {
+      await generarFacturaCompleta(nombre, telefono, metodo);
+      form.reset();
+    } catch (err) {
+      console.error('[Stiliza] Error generando factura', err);
+      toast('No se pudo generar la factura: ' + ((err && err.message) || 'error'), 'error');
+    } finally {
+      procesando = false;
+      if (btn) { btn.disabled = false; btn.innerHTML = prev; }
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('formPagoTarjeta')?.addEventListener('submit', (e) => procesarPago(e, 'tarjeta'));
+    document.getElementById('formPagoQR')?.addEventListener('submit', (e) => procesarPago(e, 'qr'));
+    // Formatear número de tarjeta
+    document.getElementById('tarjeta')?.addEventListener('input', (e) => {
+      const v = e.target.value.replace(/\D/g, '').slice(0, 16);
+      e.target.value = v.replace(/(.{4})/g, '$1 ').trim();
+    });
+    // Venir desde otra página con el carrito lleno
+    if (new URLSearchParams(location.search).get('pagar') === '1') {
+      setTimeout(() => document.getElementById('procederPago')?.click(), 400);
+    }
+  });
+})();
