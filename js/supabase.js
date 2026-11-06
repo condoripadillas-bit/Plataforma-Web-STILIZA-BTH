@@ -1,11 +1,4 @@
-// STILIZA - Cliente Supabase + Auth local por roles
-// La URL y anon key están en: js/supabase-config.js
-// Orden de scripts en el HTML:
-//   1) CDN de Supabase
-//   2) js/supabase-config.js
-//   3) js/supabase.js
-
-const SUPABASE_URL = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.url) || 'https://drzzmjwwfxfjlicjgrvd.supabase.co';
+const SUPABASE_URL = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.url) || 'https://ldezoxhgecvfxpudsqlb.supabase.co';
 const SUPABASE_ANON_KEY = (window.STILIZA_SUPABASE && window.STILIZA_SUPABASE.anonKey) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyenptand3ZnhmamxpY2pncnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDQ4NzksImV4cCI6MjEwMzUyMDg3OX0.izzfnJhUG1ERLIzxVcU27UNvg3poIIrdX_go35sxoKI';
 
 let supabaseClient = null;
