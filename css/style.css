@@ -1171,3 +1171,184 @@ body {
     min-height: 220px;
   }
 }
+
+/* ============================================================
+   MEJORAS MÓVIL · TECLADO · MODALES DE PAGO
+   ============================================================ */
+
+/* Evitar zoom automático en iOS al enfocar inputs */
+.form-group input,
+.form-group textarea,
+.form-group select,
+input[type="text"],
+input[type="tel"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+textarea {
+  font-size: 16px !important;
+}
+
+/* Variable de altura del viewport visual (teclado) */
+:root {
+  --vvh: 100vh;
+}
+
+/* Modal overlay: mejor centrado y safe-area */
+.modal-overlay {
+  padding: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right))
+           max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
+  align-items: flex-end; /* en móvil se ve como bottom-sheet */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 601px) {
+  .modal-overlay {
+    align-items: center;
+  }
+}
+
+.modal-login,
+.modal-carrito,
+.modal-pago,
+.modal-factura {
+  max-height: min(92vh, var(--vvh, 92vh));
+  max-height: min(92dvh, var(--vvh, 92dvh));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* padding inferior extra para que el botón no quede bajo el teclado */
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 600px) {
+  .modal-login,
+  .modal-carrito,
+  .modal-pago,
+  .modal-factura {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    margin: 0;
+    max-height: min(94vh, var(--vvh, 94vh));
+    max-height: min(94dvh, var(--vvh, 94dvh));
+    padding: 1.25rem 1.1rem max(1.5rem, env(safe-area-inset-bottom));
+  }
+
+  .modal-header h2 {
+    font-size: 1.4rem;
+  }
+
+  .modal-header {
+    margin-bottom: 1rem;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+
+  .carrito-acciones {
+    flex-direction: column;
+  }
+
+  .carrito-acciones .btn {
+    width: 100%;
+  }
+
+  /* Botón de pagar siempre visible y con buen tamaño táctil */
+  .btn-pagar {
+    padding: 1rem;
+    font-size: 1.05rem;
+    min-height: 52px;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-top: 1rem;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
+  }
+
+  /* Toast más centrado en móvil */
+  .stiliza-toast {
+    left: 50%;
+    right: auto;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(16px);
+    max-width: calc(100vw - 1.5rem);
+  }
+  .stiliza-toast.show {
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Cuando el teclado está abierto, reducir un poco el header del modal */
+body.keyboard-open .modal-pago .modal-header {
+  margin-bottom: 0.6rem;
+}
+body.keyboard-open .modal-pago .modal-header h2 {
+  font-size: 1.25rem;
+}
+body.keyboard-open .modal-pago .modal-sub {
+  font-size: 0.8rem;
+}
+
+/* Asegurar que el contenido del modal de pago sea scrolleable y el botón llegue */
+.modal-pago {
+  display: flex;
+  flex-direction: column;
+}
+.modal-pago form.form-pago.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Header responsive en pantallas pequeñas */
+@media (max-width: 600px) {
+  .header .container {
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .nav {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.8rem;
+    font-size: 0.85rem;
+  }
+  .nav a {
+    font-size: 0.82rem;
+  }
+  .logo-name {
+    font-size: 1.35rem;
+  }
+  .logo-img {
+    height: 40px;
+  }
+  .nav-carrito {
+    padding: 0.35rem 0.8rem;
+  }
+  .carrito-text {
+    display: none; /* solo icono + badge en móvil muy estrecho */
+  }
+}
+
+@media (max-width: 400px) {
+  .nav a {
+    font-size: 0.78rem;
+  }
+}
+
+/* Click en overlay cierra (se maneja en JS si se desea) */
+.modal-overlay {
+  cursor: pointer;
+}
+.modal-login,
+.modal-carrito,
+.modal-pago,
+.modal-factura,
+.modal-detalle {
+  cursor: default;
+}
