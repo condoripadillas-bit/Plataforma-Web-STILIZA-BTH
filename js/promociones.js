@@ -185,15 +185,12 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPromocionesCliente();
   (async () => {
     try {
-      if (!window.StilizaPromotions?.listActive) return;
-      const remote = await window.StilizaPromotions.listActive();
-      if (!remote || !remote.length) return;
-      let local = [];
-      try { local = JSON.parse(localStorage.getItem(PROMO_KEY) || '[]'); } catch (_) {}
-      const byId = new Map((local || []).map(p => [String(p.id), p]));
-      remote.forEach(p => byId.set(String(p.id), { ...byId.get(String(p.id)), ...p }));
-      const merged = [...byId.values()];
-      localStorage.setItem(PROMO_KEY, JSON.stringify(merged));
+      const sb = window.StilizaDB?.sb;
+      if (!sb) return;
+      const { data, error } = await sb.from('promotions').select('*').eq('is_active', true).order('created_at', { ascending: false });
+      if (error) { console.warn('[promos supabase]', error); return; }
+      // Lo que hay en Supabase manda (si el dueño oculta o borra una promo, desaparece)
+      localStorage.setItem(PROMO_KEY, JSON.stringify(data || []));
       renderPromocionesCliente();
     } catch (e) { console.warn('[promos supabase]', e); }
   })();
