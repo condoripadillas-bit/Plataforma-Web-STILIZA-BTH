@@ -250,9 +250,11 @@ document.addEventListener('DOMContentLoaded', () => {
     carrito = cargarCarrito();
     renderCarrito();
     document.getElementById('modalCarrito')?.classList.add('active');
+    document.body.style.overflow = 'hidden';
   });
   document.getElementById('cerrarModalCarrito')?.addEventListener('click', () => {
     document.getElementById('modalCarrito')?.classList.remove('active');
+    document.body.style.overflow = '';
   });
   document.getElementById('vaciarCarrito')?.addEventListener('click', async () => {
     const ok = typeof confirmarElegante === 'function'
@@ -283,14 +285,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('formPagoQR')?.classList.remove('active');
     const modal = document.getElementById('modalPago');
     if (!modal) {
-      // Esta página no tiene el formulario de pago: ir al catálogo (el carrito se conserva)
-      window.location.href = (location.pathname.includes('/dueno') || location.pathname.includes('/empleado') ? '../' : '') + 'catalogo.html?pagar=1';
+      if (typeof mostrarToast === 'function') mostrarToast('No se encontró el formulario de pago', 'error');
       return;
     }
     modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
   });
   document.getElementById('cerrarModalPago')?.addEventListener('click', () => {
     document.getElementById('modalPago')?.classList.remove('active');
+    document.body.style.overflow = '';
   });
   document.querySelectorAll('.metodo-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -299,6 +302,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const m = btn.dataset.metodo;
       document.getElementById('formPagoTarjeta')?.classList.toggle('active', m === 'tarjeta');
       document.getElementById('formPagoQR')?.classList.toggle('active', m === 'qr');
+    });
+  });
+
+  // Cerrar modales al tocar el fondo (overlay)
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
     });
   });
 
