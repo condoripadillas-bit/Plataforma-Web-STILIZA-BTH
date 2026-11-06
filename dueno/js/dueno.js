@@ -376,8 +376,12 @@ function setupProductos() {
     const tallas = [...document.querySelectorAll('#formProducto .tallas-check input:checked')]
       .map(c => c.value);
     let imageData = document.getElementById('prodImagen')?.value || '';
-    if (imageData && imageData.length > 350000) {
-      imageData = await comprimirImagen(imageData, 500, 0.45);
+    if (imageData && imageData.length > 110000) {
+      // La imagen se guarda en Supabase como texto: debe pesar < 120000 caracteres o se descarta
+      for (const [w, q] of [[600, 0.5], [500, 0.45], [420, 0.4], [340, 0.35]]) {
+        imageData = await comprimirImagen(imageData, w, q);
+        if (!imageData || imageData.length <= 110000) break;
+      }
     }
     const name = document.getElementById('prodNombre').value.trim();
     const price = parseFloat(document.getElementById('prodPrecio').value) || 0;
@@ -413,6 +417,24 @@ function setupProductos() {
       local.unshift(row);
     }
     if (!guardarProductos(local)) return;
+    // Subir a Supabase para que TODOS los clientes vean el producto con su imagen
+    try {
+      if (window.StilizaProducts) {
+        const idActual = String(row.id);
+        const esLocal = idActual.startsWith('local-') || idActual.startsWith('d');
+        const saved = esLocal
+          ? await window.StilizaProducts.create(row)
+          : await window.StilizaProducts.update(row.id, row);
+        if (saved && saved.id && esLocal) {
+          const lista = leerProductos();
+          const k = lista.findIndex(x => String(x.id) === idActual);
+          if (k >= 0) { lista[k].id = saved.id; guardarProductos(lista); }
+        }
+      }
+    } catch (err) {
+      console.error('[Stiliza] No se subió el producto a Supabase:', err);
+      mostrarToast?.('Guardado solo en este equipo: ' + String(err.message || err).substring(0, 80), 'warn');
+    }
     modal?.classList.remove('active');
     mostrarToast?.('Producto guardado');
     renderProductos();
@@ -497,6 +519,11 @@ window.eliminarProducto = async (id) => {
     : confirm('¿Eliminar producto?');
   if (ok === false) return;
   guardarProductos(leerProductos().filter(x => String(x.id) !== String(id)));
+  try {
+    if (window.StilizaProducts && !String(id).startsWith('local-') && !String(id).startsWith('d')) {
+      await window.StilizaProducts.remove(id);
+    }
+  } catch (_) {}
   mostrarToast?.('Eliminado');
   renderProductos();
   renderDashboard();
