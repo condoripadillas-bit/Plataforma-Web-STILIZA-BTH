@@ -221,7 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (s === 'estadisticas') renderEstadisticas();
       if (s === 'mensajes') renderMensajes();
       if (s === 'destacados') renderDestacados();
-      if (s === 'promociones') renderPromos();
+      if (s === 'promociones') { renderPromos(); cargarPromosDesdeNube(); }
     });
   });
 
@@ -230,6 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupReservasFiltros();
   setupDestacados();
   setupPromos();
+  cargarPromosDesdeNube();
 
   renderDashboard();
   renderProductos();
@@ -884,6 +885,22 @@ function loadPromos() {
   return list;
 }
 function savePromos(list) { safeSet(PROMO_KEY, list); }
+
+// ===== PROMOCIONES ↔ SUPABASE =====
+const esIdNube = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(v));
+
+async function cargarPromosDesdeNube() {
+  try {
+    const sb = window.StilizaDB?.sb;
+    if (!sb) return;
+    const { data, error } = await sb.from('promotions').select('*').order('created_at', { ascending: false });
+    if (error) { console.error('[promos] no se pudo leer de Supabase:', error); return; }
+    // conservar las que aún no se subieron (id local "p123...") + las de la nube
+    const pendientes = loadPromos().filter(x => !esIdNube(x.id));
+    savePromos([...(data || []), ...pendientes]);
+    renderPromos();
+  } catch (err) { console.error('[promos] error de red:', err); }
+}
 function loadDestacados() {
   try { return JSON.parse(localStorage.getItem(DEST_KEY) || '[]'); } catch { return []; }
 }
@@ -917,7 +934,7 @@ function setupPromos() {
     };
     r.readAsDataURL(f);
   });
-  document.getElementById('formPromo')?.addEventListener('submit', (e) => {
+  document.getElementById('formPromo')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const list = loadPromos();
     const dias = parseInt(document.getElementById('promoDias')?.value, 10) || 20;
@@ -948,12 +965,41 @@ function setupPromos() {
       const old = list.find(x => x.id === window.__editPromoId);
       if (old?.image_url) payload.image_url = old.image_url;
     }
+    // La imagen se guarda como texto en Supabase: debe pesar < 120000 caracteres
+    if (payload.image_url && payload.image_url.length > 110000) {
+      for (const [w, q] of [[600, 0.5], [500, 0.45], [420, 0.4], [340, 0.35]]) {
+        payload.image_url = await comprimirImagen(payload.image_url, w, q);
+        if (!payload.image_url || payload.image_url.length <= 110000) break;
+      }
+    }
+    const btnSubmit = e.target.querySelector('button[type="submit"]');
+    if (btnSubmit) btnSubmit.disabled = true;
+    let guardadoEnNube = false;
+    try {
+      if (!window.StilizaPromotions) throw new Error('Servicio de promociones no cargado');
+      const idAnterior = payload.id;
+      const saved = (window.__editPromoId && esIdNube(idAnterior))
+        ? await window.StilizaPromotions.update(idAnterior, payload)
+        : await window.StilizaPromotions.create(payload);
+      if (saved && saved.id) {
+        // quitar la copia local con id temporal y usar la fila real de Supabase
+        const k = list.findIndex(x => x.id === idAnterior);
+        if (k >= 0) list.splice(k, 1);
+        payload.id = saved.id;
+        payload.created_at = saved.created_at || payload.created_at;
+        guardadoEnNube = true;
+      }
+    } catch (err) {
+      console.error('[promos] no se guardó en Supabase:', err);
+      mostrarToast?.('No se guardó en Supabase: ' + String(err.message || err).substring(0, 120), 'error');
+    }
+    if (btnSubmit) btnSubmit.disabled = false;
     const idx = list.findIndex(x => x.id === payload.id);
     if (idx >= 0) list[idx] = { ...list[idx], ...payload };
     else list.unshift(payload);
     savePromos(list);
     modal?.classList.remove('active');
-    mostrarToast?.('Promoción guardada');
+    if (guardadoEnNube) mostrarToast?.('Promoción guardada');
     renderPromos();
   });
 }
@@ -989,12 +1035,18 @@ function renderPromos() {
   }).join('');
 }
 
-window.togglePromoVisible = (id) => {
+window.togglePromoVisible = async (id) => {
   const list = loadPromos();
   const p = list.find(x => x.id === id);
   if (!p) return;
   if (daysLeft(p) <= 0) return mostrarToast?.('Esta promoción ya venció.', 'warn');
   p.is_active = !p.is_active;
+  try {
+    if (window.StilizaPromotions && esIdNube(id)) await window.StilizaPromotions.update(id, p);
+  } catch (err) {
+    console.error('[promos] toggle:', err);
+    mostrarToast?.('No se actualizó en Supabase: ' + String(err.message || err).substring(0, 100), 'error');
+  }
   savePromos(list);
   renderPromos();
   mostrarToast?.(p.is_active ? 'Promoción visible' : 'Promoción ocultada');
@@ -1029,6 +1081,9 @@ window.eliminarPromo = async (id) => {
       })
     : confirm('¿Eliminar promoción?');
   if (ok === false) return;
+  try {
+    if (window.StilizaPromotions && esIdNube(id)) await window.StilizaPromotions.remove(id);
+  } catch (err) { console.error('[promos] eliminar:', err); }
   savePromos(loadPromos().filter(x => x.id !== id));
   mostrarToast?.('Promoción eliminada');
   renderPromos();
